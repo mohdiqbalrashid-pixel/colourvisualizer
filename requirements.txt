@@ -1,7 +1,6 @@
-streamlit==1.40.0
-streamlit-drawable-canvas==0.9.3
-opencv-python-headless
+streamlit
 numpy
 pillow
+opencv-python-headless
 pandas
-scikit-image
+streamlit-drawable-canvas
