@@ -6,18 +6,27 @@ from PIL import Image
 from io import BytesIO
 from streamlit_drawable_canvas import st_canvas
 
+# ============================================================
+# Page setup
+# ============================================================
+
 st.set_page_config(
     page_title="Jotun Colour Visualizer",
     page_icon="🎨",
     layout="wide"
 )
 
-# -----------------------------
+# ============================================================
 # Helper functions
-# -----------------------------
+# ============================================================
 
 def resize_image(image, max_width=1000):
+    """
+    Resize uploaded image for smoother canvas performance.
+    Keeps aspect ratio.
+    """
     width, height = image.size
+
     if width <= max_width:
         return image
 
@@ -27,6 +36,15 @@ def resize_image(image, max_width=1000):
 
 
 def recolor_wall_lab(image_rgb, mask, target_rgb, strength=0.85):
+    """
+    Recolour selected wall area while preserving light, shadow, and texture.
+
+    image_rgb: RGB image as numpy array
+    mask: binary mask, 255 where colour should apply
+    target_rgb: tuple, e.g. (216, 210, 195)
+    strength: colour application strength
+    """
+
     image_lab = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2LAB)
 
     target_patch = np.uint8([[target_rgb]])
@@ -50,6 +68,7 @@ def recolor_wall_lab(image_rgb, mask, target_rgb, strength=0.85):
     recolored_lab = cv2.merge([L, new_A, new_B])
     recolored_rgb = cv2.cvtColor(recolored_lab, cv2.COLOR_LAB2RGB)
 
+    # Feather edges for softer, more realistic transition
     soft_mask = cv2.GaussianBlur(mask, (25, 25), 0) / 255.0
     soft_mask = soft_mask[..., None]
 
@@ -62,8 +81,8 @@ def recolor_wall_lab(image_rgb, mask, target_rgb, strength=0.85):
 
 def extract_mask_from_canvas(canvas_image):
     """
-    Extract the magenta drawn area from canvas.
-    The uploaded image is the background; the selection is drawn in magenta.
+    Extract the magenta selected area from the drawable canvas.
+    The uploaded image is the background; selected area is drawn in magenta.
     """
 
     if canvas_image is None:
@@ -75,203 +94,314 @@ def extract_mask_from_canvas(canvas_image):
     g = canvas_rgb[:, :, 1].astype(np.int16)
     b = canvas_rgb[:, :, 2].astype(np.int16)
 
-    # Detect magenta/pink drawing overlay
+    # Detect magenta/pink overlay
     mask_bool = (
         (r > 140) &
         (b > 120) &
-        (g < 120) &
-        ((r - g) > 50) &
-        ((b - g) > 40)
+        (g < 140) &
+        ((r - g) > 40) &
+        ((b - g) > 30)
     )
 
     mask = mask_bool.astype(np.uint8) * 255
 
-    # Fill and smooth the selected area
+    # Clean mask
     kernel = np.ones((7, 7), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
-    return mask
+    # Fill small gaps
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    filled_mask = np.zeros_like(mask)
+    if contours:
+        cv2.drawContours(filled_mask, contours, -1, 255, thickness=cv2.FILLED)
+
+    return filled_mask
 
 
 def image_to_download_bytes(image_array):
+    """
+    Convert numpy image array to downloadable PNG bytes.
+    """
     image = Image.fromarray(image_array)
     buffer = BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
 
 
-# -----------------------------
-# App
-# -----------------------------
+def create_colour_preview(rgb_value):
+    """
+    Create solid colour swatch.
+    """
+    swatch = np.zeros((90, 180, 3), dtype=np.uint8)
+    swatch[:] = rgb_value
+    return swatch
 
-st.title("Jotun Colour Visualizer")
-st.caption("Upload a photo, select the wall directly on the image, apply a colour, and export the result.")
 
-try:
-    colours = pd.read_csv("colours.csv")
-except Exception as e:
-    st.error("Could not load colours.csv. Please make sure it exists in your GitHub repo.")
-    st.stop()
+# ============================================================
+# Session state
+# ============================================================
 
 if "canvas_key" not in st.session_state:
     st.session_state["canvas_key"] = 0
+
+if "result" not in st.session_state:
+    st.session_state["result"] = None
+
+if "selected_colour" not in st.session_state:
+    st.session_state["selected_colour"] = None
+
+# ============================================================
+# App header
+# ============================================================
+
+st.title("Jotun Colour Visualizer")
+st.caption(
+    "Upload a room photo, select the wall directly on the image, apply a Jotun colour, and export the result."
+)
+
+st.info(
+    "Prototype version: manual wall selection directly on the image. "
+    "Use polygon mode for cleaner wall edges."
+)
+
+# ============================================================
+# Load colour database
+# ============================================================
+
+try:
+    colours = pd.read_csv("colours.csv")
+except Exception:
+    st.error(
+        "Could not load colours.csv. Please make sure colours.csv exists in your GitHub repository."
+    )
+    st.stop()
+
+required_columns = ["code", "name", "r", "g", "b", "product", "finish"]
+
+missing_columns = [col for col in required_columns if col not in colours.columns]
+
+if missing_columns:
+    st.error(f"Missing column in colours.csv: {', '.join(missing_columns)}")
+    st.stop()
+
+# ============================================================
+# Upload image
+# ============================================================
 
 uploaded_file = st.file_uploader(
     "Upload homeowner wall photo",
     type=["jpg", "jpeg", "png"]
 )
 
-if uploaded_file is not None:
-    original_image = Image.open(uploaded_file).convert("RGB")
-    display_image = resize_image(original_image)
+if uploaded_file is None:
+    st.warning("Upload a room photo to start.")
+    st.stop()
 
-    image_rgb = np.array(display_image)
-    height, width = image_rgb.shape[:2]
+original_image = Image.open(uploaded_file).convert("RGB")
+display_image = resize_image(original_image)
 
-    st.subheader("1. Select wall area directly on the image")
+image_rgb = np.array(display_image)
+height, width = image_rgb.shape[:2]
 
-    st.write(
-        "Draw over the wall area you want to recolour. "
-        "Use **polygon** for cleaner wall edges, or **freedraw** for quick rough selection."
+# Reset result if a new file is uploaded
+uploaded_file_id = uploaded_file.name
+
+if "last_uploaded_file" not in st.session_state:
+    st.session_state["last_uploaded_file"] = uploaded_file_id
+
+if st.session_state["last_uploaded_file"] != uploaded_file_id:
+    st.session_state["last_uploaded_file"] = uploaded_file_id
+    st.session_state["result"] = None
+    st.session_state["selected_colour"] = None
+    st.session_state["canvas_key"] += 1
+
+# ============================================================
+# Layout
+# ============================================================
+
+st.subheader("1. Select wall area directly on the image")
+
+st.write(
+    "Draw over the wall area you want to recolour. "
+    "For best results, use **polygon** and close the shape around the wall."
+)
+
+controls_col, canvas_col = st.columns([1, 3])
+
+with controls_col:
+    drawing_mode = st.radio(
+        "Selection tool",
+        ["polygon", "freedraw"],
+        index=0
     )
 
-    controls_col, canvas_col = st.columns([1, 3])
-
-    with controls_col:
-        drawing_mode = st.radio(
-            "Selection tool",
-            ["polygon", "freedraw"],
-            index=0
-        )
-
-        stroke_width = st.slider(
-            "Line thickness",
-            min_value=1,
-            max_value=30,
-            value=3
-        )
-
-        fill_opacity = st.slider(
-            "Selection visibility",
-            min_value=0.10,
-            max_value=0.70,
-            value=0.35,
-            step=0.05
-        )
-
-        if st.button("Clear selection"):
-            st.session_state["canvas_key"] += 1
-            st.rerun()
-
-        st.info(
-            "Tip: With polygon mode, select points around the wall. "
-            "Close the shape to fill the selected area."
-        )
-
-    with canvas_col:
-        canvas_result = st_canvas(
-            fill_color=f"rgba(255, 0, 180, {fill_opacity})",
-            stroke_width=stroke_width,
-            stroke_color="#FF00B4",
-            background_image=display_image,
-            update_streamlit=True,
-            height=height,
-            width=width,
-            drawing_mode=drawing_mode,
-            key=f"canvas_{st.session_state['canvas_key']}"
-        )
-
-    mask = None
-    if canvas_result.image_data is not None:
-        mask = extract_mask_from_canvas(canvas_result.image_data)
-
-    st.subheader("2. Choose Jotun colour")
-
-    colour_labels = [
-        f"{row['code']} — {row['name']}"
-        for _, row in colours.iterrows()
-    ]
-
-    selected_label = st.selectbox("Select colour", colour_labels)
-
-    selected_index = colour_labels.index(selected_label)
-    selected_colour = colours.iloc[selected_index]
-
-    target_rgb = (
-        int(selected_colour["r"]),
-        int(selected_colour["g"]),
-        int(selected_colour["b"])
+    stroke_width = st.slider(
+        "Line thickness",
+        min_value=1,
+        max_value=30,
+        value=3
     )
 
-    preview_colour = np.zeros((80, 180, 3), dtype=np.uint8)
-    preview_colour[:] = target_rgb
-
-    colour_col, details_col = st.columns([1, 3])
-
-    with colour_col:
-        st.image(preview_colour, caption="Selected colour")
-
-    with details_col:
-        st.markdown(
-            f"""
-            **Colour:** {selected_colour['name']}  
-            **Code:** {selected_colour['code']}  
-            **Product:** {selected_colour['product']}  
-            **Finish:** {selected_colour['finish']}
-            """
-        )
-
-    strength = st.slider(
-        "Colour strength",
-        min_value=0.30,
-        max_value=1.00,
-        value=0.85,
+    fill_opacity = st.slider(
+        "Selection visibility",
+        min_value=0.10,
+        max_value=0.70,
+        value=0.35,
         step=0.05
     )
 
-    st.subheader("3. Generate preview")
+    st.markdown("---")
 
-    if st.button("Apply colour", type="primary"):
-        if mask is None or np.sum(mask) == 0:
-            st.warning("Please select the wall area directly on the image first.")
-        else:
-            result = recolor_wall_lab(
-                image_rgb=image_rgb,
-                mask=mask,
-                target_rgb=target_rgb,
-                strength=strength
-            )
+    if st.button("Clear selection"):
+        st.session_state["canvas_key"] += 1
+        st.session_state["result"] = None
+        st.rerun()
 
-            st.session_state["result"] = result
-            st.session_state["selected_colour"] = selected_colour
+    st.info(
+        "Tip: In polygon mode, select points around the wall and close the shape. "
+        "If it feels difficult, switch to freedraw."
+    )
 
-    if "result" in st.session_state:
-        st.subheader("4. Before / After")
+with canvas_col:
+    canvas_result = st_canvas(
+        fill_color=f"rgba(255, 0, 180, {fill_opacity})",
+        stroke_width=stroke_width,
+        stroke_color="#FF00B4",
+        background_image=display_image,
+        update_streamlit=True,
+        height=height,
+        width=width,
+        drawing_mode=drawing_mode,
+        key=f"canvas_{st.session_state['canvas_key']}"
+    )
 
-        before_col, after_col = st.columns(2)
+mask = None
 
-        with before_col:
-            st.image(image_rgb, caption="Before", use_container_width=True)
+if canvas_result.image_data is not None:
+    mask = extract_mask_from_canvas(canvas_result.image_data)
 
-        with after_col:
-            st.image(st.session_state["result"], caption="After", use_container_width=True)
+# ============================================================
+# Select colour
+# ============================================================
 
-        st.subheader("5. Export")
+st.subheader("2. Choose Jotun colour")
 
-        selected_colour = st.session_state["selected_colour"]
+colour_labels = [
+    f"{row['code']} — {row['name']}"
+    for _, row in colours.iterrows()
+]
 
-        st.download_button(
-            label="Download recoloured image",
-            data=image_to_download_bytes(st.session_state["result"]),
-            file_name=f"jotun_visualizer_{selected_colour['code']}.png",
-            mime="image/png"
+selected_label = st.selectbox(
+    "Select colour",
+    colour_labels
+)
+
+selected_index = colour_labels.index(selected_label)
+selected_colour = colours.iloc[selected_index]
+
+target_rgb = (
+    int(selected_colour["r"]),
+    int(selected_colour["g"]),
+    int(selected_colour["b"])
+)
+
+colour_swatch = create_colour_preview(target_rgb)
+
+colour_col, details_col = st.columns([1, 3])
+
+with colour_col:
+    st.image(colour_swatch, caption="Selected colour")
+
+with details_col:
+    st.markdown(
+        f"""
+        **Colour:** {selected_colour['name']}  
+        **Code:** {selected_colour['code']}  
+        **Product:** {selected_colour['product']}  
+        **Finish:** {selected_colour['finish']}
+        """
+    )
+
+strength = st.slider(
+    "Colour strength",
+    min_value=0.30,
+    max_value=1.00,
+    value=0.85,
+    step=0.05
+)
+
+# ============================================================
+# Generate preview
+# ============================================================
+
+st.subheader("3. Generate preview")
+
+generate_col, mask_col = st.columns([1, 2])
+
+with generate_col:
+    apply_clicked = st.button("Apply colour", type="primary")
+
+with mask_col:
+    if mask is not None and np.sum(mask) > 0:
+        selected_pixels = int(np.sum(mask > 0))
+        st.success(f"Wall area selected: {selected_pixels:,} pixels")
+    else:
+        st.warning("No wall area selected yet.")
+
+if apply_clicked:
+    if mask is None or np.sum(mask) == 0:
+        st.warning("Please select the wall area directly on the image first.")
+    else:
+        result = recolor_wall_lab(
+            image_rgb=image_rgb,
+            mask=mask,
+            target_rgb=target_rgb,
+            strength=strength
         )
 
-        st.caption(
-            "Disclaimer: This digital preview is for visual guidance only. "
-            "Actual colour appearance may vary depending on lighting, screen calibration, wall texture, surface condition, and paint finish."
+        st.session_state["result"] = result
+        st.session_state["selected_colour"] = selected_colour
+
+# ============================================================
+# Preview and export
+# ============================================================
+
+if st.session_state["result"] is not None:
+    st.subheader("4. Before / After")
+
+    before_col, after_col = st.columns(2)
+
+    with before_col:
+        st.image(
+            image_rgb,
+            caption="Before",
+            use_container_width=True
         )
 
+    with after_col:
+        st.image(
+            st.session_state["result"],
+            caption="After",
+            use_container_width=True
+        )
+
+    st.subheader("5. Export")
+
+    export_colour = st.session_state["selected_colour"]
+
+    st.download_button(
+        label="Download recoloured image",
+        data=image_to_download_bytes(st.session_state["result"]),
+        file_name=f"jotun_visualizer_{export_colour['code']}.png",
+        mime="image/png"
+    )
+
+    st.caption(
+        "Disclaimer: This digital preview is for visual guidance only. "
+        "Actual colour appearance may vary depending on lighting, screen calibration, "
+        "wall texture, surface condition, and paint finish."
+    )
 else:
-    st.warning("Upload a room photo to start.")
+    st.caption("After selecting the wall and applying a colour, your before/after preview will appear here.")
