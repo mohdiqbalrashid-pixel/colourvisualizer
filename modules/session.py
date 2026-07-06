@@ -7,9 +7,7 @@ DEFAULT_STATE = {
 
     "selected_colour": None,
 
-    "selected_surface": None,
-
-    "detected_surfaces": None
+    "selected_surface_point": None
 
 }
 
