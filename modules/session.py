@@ -11,7 +11,7 @@ DEFAULT_STATE = {
 
     "wall_mask": None,
 
-    "segmented_image": None
+    "painted_image": None
 
 }
 
