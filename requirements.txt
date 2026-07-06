@@ -1,5 +1,5 @@
 streamlit
-streamlit-drawable-canvas-fix==0.9.8
+streamlit-image-coordinates
 opencv-python-headless
 numpy
 pillow
