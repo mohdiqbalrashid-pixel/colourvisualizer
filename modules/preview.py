@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 from streamlit_image_coordinates import streamlit_image_coordinates
 
-from modules.sam_segmentation import get_sam_mask
+from modules.segmentation import create_wall_mask
 from modules.recolouring import apply_paint
 
 
@@ -29,11 +29,11 @@ def build_preview():
 
             st.session_state.selected_surface_point = seed
 
-            # 🔥 SAM INFERENCE
-            mask = get_sam_mask(image_np, seed)
+            mask = create_wall_mask(image_np, seed)
 
             st.session_state.wall_mask = mask
 
+            # Only repaint if colour exists
             if st.session_state.selected_colour is not None:
 
                 painted = apply_paint(
@@ -48,7 +48,11 @@ def build_preview():
 
                 st.session_state.painted_image = painted
 
-            st.success(f"AI wall detected from {seed}")
+            st.success(f"Surface detected from {seed}")
+
+    # --------------------------------------------------
+    # Display logic
+    # --------------------------------------------------
 
     if st.session_state.painted_image is not None:
 
