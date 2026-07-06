@@ -5,42 +5,61 @@ import cv2
 def apply_paint(image_np, mask, target_rgb, strength=0.85):
 
     """
-    Realistic paint simulation:
-    - preserves lighting
-    - preserves texture
-    - blends in LAB space
+    Realistic paint engine v2:
+    - preserves lighting (L channel)
+    - modifies only chroma (A/B channels)
+    - smooth mask blending
     """
 
     if mask is None:
         return image_np
 
-    # Normalize mask to 0–1
-    soft_mask = mask.astype(np.float32) / 255.0
+    # --------------------------------------------------
+    # 1. Normalize mask → soft alpha
+    # --------------------------------------------------
+    alpha = mask.astype(np.float32) / 255.0
 
-    soft_mask = cv2.GaussianBlur(soft_mask, (21, 21), 0)
+    # soften edges for realism (paint bleed effect)
+    alpha = cv2.GaussianBlur(alpha, (21, 21), 0)
 
-    soft_mask = np.clip(soft_mask, 0, 1)
+    alpha = np.clip(alpha, 0, 1) * strength
 
-    # Convert image to LAB
+    # --------------------------------------------------
+    # 2. Convert to LAB color space
+    # --------------------------------------------------
     lab = cv2.cvtColor(image_np, cv2.COLOR_RGB2LAB)
-
-    # Target colour in LAB
-    target = np.uint8([[target_rgb]])
-    target_lab = cv2.cvtColor(target, cv2.COLOR_RGB2LAB)[0][0]
 
     L, A, B = cv2.split(lab)
 
-    # Blend chroma channels
+    # --------------------------------------------------
+    # 3. Target color in LAB
+    # --------------------------------------------------
+    target = np.uint8([[target_rgb]])
+    target_lab = cv2.cvtColor(target, cv2.COLOR_RGB2LAB)[0][0]
+
+    # --------------------------------------------------
+    # 4. Blend ONLY chroma channels
+    # --------------------------------------------------
     A = A.astype(np.float32)
     B = B.astype(np.float32)
 
-    A = A * (1 - soft_mask * strength) + target_lab[1] * (soft_mask * strength)
-    B = B * (1 - soft_mask * strength) + target_lab[2] * (soft_mask * strength)
+    A = A * (1 - alpha) + target_lab[1] * alpha
+    B = B * (1 - alpha) + target_lab[2] * alpha
 
-    lab_final = cv2.merge([
-        L,
+    # --------------------------------------------------
+    # 5. Reconstruct LAB image
+    # --------------------------------------------------
+    lab_out = cv2.merge([
+        L,  # preserve lighting completely
         A.astype(np.uint8),
         B.astype(np.uint8)
     ])
 
-    return cv2.cvtColor(lab_final, cv2.COLOR_LAB2RGB)
+    rgb_out = cv2.cvtColor(lab_out, cv2.COLOR_LAB2RGB)
+
+    # --------------------------------------------------
+    # 6. Final subtle blending for realism
+    # --------------------------------------------------
+    final = (image_np * (1 - alpha[..., None]) + rgb_out * alpha[..., None])
+
+    return final.astype(np.uint8)
