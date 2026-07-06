@@ -3,6 +3,7 @@ import numpy as np
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 from modules.segmentation import create_wall_mask
+from modules.recolouring import apply_paint
 
 
 def build_preview():
@@ -22,22 +23,37 @@ def build_preview():
         key="image_click"
     )
 
+    # NEW PIPELINE
     if click:
 
         seed = (click["x"], click["y"])
 
         st.session_state.selected_surface_point = seed
 
-        mask, segmented = create_wall_mask(image_np, seed)
+        mask = create_wall_mask(image_np, seed)
 
         st.session_state.wall_mask = mask
-        st.session_state.segmented_image = segmented
 
-        st.success(f"Wall detected from seed {seed}")
+        # Only apply paint if colour exists
+        if st.session_state.selected_colour is not None:
 
-    # Show results
+            painted = apply_paint(
+                image_np,
+                mask,
+                (
+                    st.session_state.selected_colour["r"],
+                    st.session_state.selected_colour["g"],
+                    st.session_state.selected_colour["b"]
+                )
+            )
 
-    if st.session_state.segmented_image is not None:
+            st.session_state.painted_image = painted
+
+        st.success(f"Wall processed from {seed}")
+
+    # DISPLAY LOGIC
+
+    if st.session_state.painted_image is not None:
 
         col1, col2 = st.columns(2)
 
@@ -46,8 +62,8 @@ def build_preview():
             st.image(image_np, use_container_width=True)
 
         with col2:
-            st.write("Detected Wall Region")
-            st.image(st.session_state.segmented_image, use_container_width=True)
+            st.write("Painted Wall")
+            st.image(st.session_state.painted_image, use_container_width=True)
 
     else:
 
