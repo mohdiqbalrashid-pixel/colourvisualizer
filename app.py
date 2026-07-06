@@ -5,30 +5,19 @@ from modules.session import initialise_session
 from modules.sidebar import build_sidebar
 from modules.preview import build_preview
 
-# -------------------------------------------------
-# Configure page
-# -------------------------------------------------
-
 configure_page()
-
-# -------------------------------------------------
-# Session State
-# -------------------------------------------------
-
 initialise_session()
-
-# -------------------------------------------------
-# Page Header
-# -------------------------------------------------
 
 st.title("🎨 Jotun Colour Visualizer")
 st.caption("Internal Colour Consultation Tool")
 
-st.divider()
+# NEW: show selection status
+if st.session_state.selected_surface_point:
+    st.success(
+        f"Surface seed selected at {st.session_state.selected_surface_point}"
+    )
 
-# -------------------------------------------------
-# Layout
-# -------------------------------------------------
+st.divider()
 
 left, right = st.columns([1, 2])
 
