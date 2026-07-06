@@ -1,9 +1,4 @@
-colour_name,colour_code,hex,product
-Soft Sand,12075,#C8B89F,Fenomastic Wonderwall Life
-Warm White,1001,#F2E9DA,Fenomastic Wonderwall Lux
-Muted Green,7628,#8A927D,Fenomastic Wonderwall Life
-Deep Blue,4863,#39495C,Lady Design Touch of Suede
-Classic Beige,1024,#D8C7AA,Fenomastic Wonderwall Life
-Elegant Grey,0394,#B8B8B2,Fenomastic Wonderwall Lux
-Olive Touch,7629,#777D66,Fenomastic Wonderwall Life
-Dusty Rose,2024,#B99A91,Lady Design Touch of Suede
+colour_code,colour_name,hex,r,g,b,product,finish,lrv
+12075,Soothing Beige,#BBB08F,187,176,143,Majestic,Matt,47
+1024,Timeless,#E0DDD3,224,221,211,Majestic,Matt,71
+1624,Skylight,#D9E2E8,217,226,232,Majestic,Matt,73
