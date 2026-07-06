@@ -7,6 +7,8 @@ from PIL import Image
 # ---------------------------------------------------
 
 st.set_page_config(
+if "selected_point" not in st.session_state:
+    st.session_state["selected_point"] = None
     page_title="Jotun Colour Visualizer",
     page_icon="🎨",
     layout="wide"
@@ -128,15 +130,27 @@ with right:
 
     if uploaded_file:
 
-        image = Image.open(uploaded_file)
+        image = Image.open(uploaded_file).convert("RGB")
 
-        st.image(
+        click = streamlit_image_coordinates(
             image,
+            key="room_image",
             use_container_width=True
         )
 
+        if click:
+
+            st.success(
+                f"Clicked at X={click['x']}  Y={click['y']}"
+            )
+
+            st.session_state["selected_point"] = (
+                click["x"],
+                click["y"]
+            )
+
     else:
 
-        st.info(
-            "Upload an image to begin."
-        )
+        st.info("Upload an image to begin.")
+
+from streamlit_image_coordinates import streamlit_image_coordinates
