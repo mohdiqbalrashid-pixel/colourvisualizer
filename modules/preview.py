@@ -1,32 +1,14 @@
-import streamlit as st
-import numpy as np
-from streamlit_image_coordinates import streamlit_image_coordinates
+click = streamlit_image_coordinates(
+    image_np,
+    key="image_click"
+)
 
-from modules.segmentation import create_wall_mask
-from modules.recolouring import apply_paint
+if click:
 
+    seed = (click["x"], click["y"])
 
-def build_preview():
-
-    st.subheader("Preview")
-
-    if st.session_state.uploaded_image is None:
-
-        st.info("Upload an image to begin.")
-
-        return
-
-    image_np = np.array(st.session_state.uploaded_image)
-
-    click = streamlit_image_coordinates(
-        image_np,
-        key="image_click"
-    )
-
-    # NEW PIPELINE
-    if click:
-
-        seed = (click["x"], click["y"])
+    # Prevent repeated recomputation for same click
+    if seed != st.session_state.selected_surface_point:
 
         st.session_state.selected_surface_point = seed
 
@@ -34,8 +16,10 @@ def build_preview():
 
         st.session_state.wall_mask = mask
 
-        # Only apply paint if colour exists
+        # Apply paint only if colour selected
         if st.session_state.selected_colour is not None:
+
+            from modules.recolouring import apply_paint
 
             painted = apply_paint(
                 image_np,
@@ -49,22 +33,4 @@ def build_preview():
 
             st.session_state.painted_image = painted
 
-        st.success(f"Wall processed from {seed}")
-
-    # DISPLAY LOGIC
-
-    if st.session_state.painted_image is not None:
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.write("Original")
-            st.image(image_np, use_container_width=True)
-
-        with col2:
-            st.write("Painted Wall")
-            st.image(st.session_state.painted_image, use_container_width=True)
-
-    else:
-
-        st.image(image_np, use_container_width=True)
+        st.success(f"Wall refined from {seed}")
