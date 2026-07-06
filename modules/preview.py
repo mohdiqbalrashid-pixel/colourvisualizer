@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 from streamlit_image_coordinates import streamlit_image_coordinates
 
-from modules.segmentation import create_wall_mask
+from modules.sam_segmentation import get_sam_mask
 from modules.recolouring import apply_paint
 
 
@@ -11,9 +11,7 @@ def build_preview():
     st.subheader("Preview")
 
     if st.session_state.uploaded_image is None:
-
         st.info("Upload an image to begin.")
-
         return
 
     image_np = np.array(st.session_state.uploaded_image)
@@ -27,12 +25,12 @@ def build_preview():
 
         seed = (click["x"], click["y"])
 
-        # prevent reprocessing same click
         if seed != st.session_state.selected_surface_point:
 
             st.session_state.selected_surface_point = seed
 
-            mask = create_wall_mask(image_np, seed)
+            # 🔥 SAM INFERENCE
+            mask = get_sam_mask(image_np, seed)
 
             st.session_state.wall_mask = mask
 
@@ -50,9 +48,7 @@ def build_preview():
 
                 st.session_state.painted_image = painted
 
-            st.success(f"Wall processed from {seed}")
-
-    # DISPLAY LOGIC
+            st.success(f"AI wall detected from {seed}")
 
     if st.session_state.painted_image is not None:
 
@@ -65,5 +61,4 @@ def build_preview():
             st.image(st.session_state.painted_image, use_container_width=True)
 
     else:
-
         st.image(image_np, use_container_width=True)
