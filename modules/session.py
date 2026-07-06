@@ -7,7 +7,11 @@ DEFAULT_STATE = {
 
     "selected_colour": None,
 
-    "selected_surface_point": None
+    "selected_surface_point": None,
+
+    "wall_mask": None,
+
+    "segmented_image": None
 
 }
 
