@@ -1,36 +1,69 @@
-click = streamlit_image_coordinates(
-    image_np,
-    key="image_click"
-)
+import streamlit as st
+import numpy as np
+from streamlit_image_coordinates import streamlit_image_coordinates
 
-if click:
+from modules.segmentation import create_wall_mask
+from modules.recolouring import apply_paint
 
-    seed = (click["x"], click["y"])
 
-    # Prevent repeated recomputation for same click
-    if seed != st.session_state.selected_surface_point:
+def build_preview():
 
-        st.session_state.selected_surface_point = seed
+    st.subheader("Preview")
 
-        mask = create_wall_mask(image_np, seed)
+    if st.session_state.uploaded_image is None:
 
-        st.session_state.wall_mask = mask
+        st.info("Upload an image to begin.")
 
-        # Apply paint only if colour selected
-        if st.session_state.selected_colour is not None:
+        return
 
-            from modules.recolouring import apply_paint
+    image_np = np.array(st.session_state.uploaded_image)
 
-            painted = apply_paint(
-                image_np,
-                mask,
-                (
-                    st.session_state.selected_colour["r"],
-                    st.session_state.selected_colour["g"],
-                    st.session_state.selected_colour["b"]
+    click = streamlit_image_coordinates(
+        image_np,
+        key="image_click"
+    )
+
+    if click:
+
+        seed = (click["x"], click["y"])
+
+        # prevent reprocessing same click
+        if seed != st.session_state.selected_surface_point:
+
+            st.session_state.selected_surface_point = seed
+
+            mask = create_wall_mask(image_np, seed)
+
+            st.session_state.wall_mask = mask
+
+            if st.session_state.selected_colour is not None:
+
+                painted = apply_paint(
+                    image_np,
+                    mask,
+                    (
+                        st.session_state.selected_colour["r"],
+                        st.session_state.selected_colour["g"],
+                        st.session_state.selected_colour["b"]
+                    )
                 )
-            )
 
-            st.session_state.painted_image = painted
+                st.session_state.painted_image = painted
 
-        st.success(f"Wall refined from {seed}")
+            st.success(f"Wall processed from {seed}")
+
+    # DISPLAY LOGIC
+
+    if st.session_state.painted_image is not None:
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.image(image_np, use_container_width=True)
+
+        with col2:
+            st.image(st.session_state.painted_image, use_container_width=True)
+
+    else:
+
+        st.image(image_np, use_container_width=True)
