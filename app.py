@@ -2,9 +2,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import cv2
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageOps
 from io import BytesIO
-from streamlit_drawable_canvas import st_canvas
+from streamlit_image_coordinates import streamlit_image_coordinates
 
 # ============================================================
 # Page setup
@@ -45,14 +45,6 @@ def hex_to_rgb(hex_value):
 
 
 def clean_colour_database(df):
-    """
-    Makes colours.csv flexible.
-    Accepts:
-    - colour_name / colour_code / hex / product
-    - name / code / r / g / b / product / finish
-    """
-
-    # Clean headers
     df.columns = (
         df.columns
         .str.strip()
@@ -61,7 +53,6 @@ def clean_colour_database(df):
         .str.replace("-", "_")
     )
 
-    # Rename common alternatives
     rename_map = {
         "name": "colour_name",
         "color_name": "colour_name",
@@ -87,9 +78,7 @@ def clean_colour_database(df):
 
     df = df.rename(columns=rename_map)
 
-    # Required minimum fields
     required_minimum = ["colour_name", "colour_code"]
-
     missing_minimum = [col for col in required_minimum if col not in df.columns]
 
     if missing_minimum:
@@ -100,25 +89,19 @@ def clean_colour_database(df):
         st.write("Detected columns:", list(df.columns))
         st.stop()
 
-    # If product missing, add placeholder
     if "product" not in df.columns:
         df["product"] = "Product recommendation TBC"
 
-    # If finish missing, add placeholder
     if "finish" not in df.columns:
         df["finish"] = "Finish TBC"
 
-    # If HEX exists, clean it
     if "hex" in df.columns:
         df["hex"] = df["hex"].astype(str).str.strip()
         df["hex"] = df["hex"].apply(lambda x: x if x.startswith("#") else f"#{x}")
 
-    # If r/g/b missing, create from HEX
     if not all(col in df.columns for col in ["r", "g", "b"]):
         if "hex" not in df.columns:
-            st.error(
-                "Your colours.csv must include either HEX values or R/G/B columns."
-            )
+            st.error("Your colours.csv must include either HEX values or R/G/B columns.")
             st.write("Detected columns:", list(df.columns))
             st.stop()
 
@@ -132,7 +115,6 @@ def clean_colour_database(df):
         df["g"] = rgb_values.apply(lambda x: x[1])
         df["b"] = rgb_values.apply(lambda x: x[2])
 
-    # If HEX missing, create from r/g/b
     if "hex" not in df.columns:
         df["hex"] = df.apply(
             lambda row: "#{:02X}{:02X}{:02X}".format(
@@ -143,7 +125,6 @@ def clean_colour_database(df):
             axis=1
         )
 
-    # Final validation
     required_final = [
         "colour_name",
         "colour_code",
@@ -158,22 +139,16 @@ def clean_colour_database(df):
     missing_final = [col for col in required_final if col not in df.columns]
 
     if missing_final:
-        st.error(
-            "Your colours.csv is still missing: "
-            + ", ".join(missing_final)
-        )
+        st.error("Your colours.csv is still missing: " + ", ".join(missing_final))
         st.write("Detected columns:", list(df.columns))
         st.stop()
 
-    # Remove empty rows
     df = df.dropna(subset=["colour_name", "colour_code", "r", "g", "b"])
 
-    # Ensure RGB values are integers
     df["r"] = df["r"].astype(int)
     df["g"] = df["g"].astype(int)
     df["b"] = df["b"].astype(int)
 
-    # Display label
     df["display_label"] = df.apply(
         lambda row: f"{row['colour_code']} — {row['colour_name']}",
         axis=1
@@ -182,11 +157,56 @@ def clean_colour_database(df):
     return df
 
 
-def recolor_wall_lab(image_rgb, mask, target_rgb, strength=0.85):
-    """
-    Recolour selected wall area while preserving light, shadow, and texture.
-    """
+def draw_points_on_image(image, points, closed=False):
+    preview = image.copy()
+    draw = ImageDraw.Draw(preview, "RGBA")
 
+    if len(points) >= 2:
+        line_points = points.copy()
+
+        if closed and len(points) >= 3:
+            line_points = points + [points[0]]
+
+        draw.line(line_points, fill=(255, 0, 180, 255), width=4)
+
+    for i, point in enumerate(points):
+        x, y = point
+        radius = 7
+
+        draw.ellipse(
+            [x - radius, y - radius, x + radius, y + radius],
+            fill=(255, 0, 180, 255),
+            outline=(255, 255, 255, 255),
+            width=2
+        )
+
+        draw.text(
+            (x + 10, y - 10),
+            str(i + 1),
+            fill=(255, 255, 255, 255)
+        )
+
+    if closed and len(points) >= 3:
+        overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay, "RGBA")
+        overlay_draw.polygon(points, fill=(255, 0, 180, 70))
+        preview = Image.alpha_composite(preview.convert("RGBA"), overlay).convert("RGB")
+
+    return preview
+
+
+def create_polygon_mask(image_size, points):
+    width, height = image_size
+    mask_img = Image.new("L", (width, height), 0)
+    draw = ImageDraw.Draw(mask_img)
+
+    if len(points) >= 3:
+        draw.polygon(points, fill=255)
+
+    return np.array(mask_img)
+
+
+def recolor_wall_lab(image_rgb, mask, target_rgb, strength=0.85):
     image_lab = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2LAB)
 
     target_patch = np.uint8([[target_rgb]])
@@ -213,7 +233,6 @@ def recolor_wall_lab(image_rgb, mask, target_rgb, strength=0.85):
     recolored_lab = cv2.merge([L, new_A, new_B])
     recolored_rgb = cv2.cvtColor(recolored_lab, cv2.COLOR_LAB2RGB)
 
-    # Feather edges for softer, more realistic transition
     soft_mask = cv2.GaussianBlur(mask, (25, 25), 0) / 255.0
     soft_mask = soft_mask[..., None]
 
@@ -222,56 +241,6 @@ def recolor_wall_lab(image_rgb, mask, target_rgb, strength=0.85):
     ).astype(np.uint8)
 
     return final
-
-
-def extract_mask_from_canvas(canvas_image):
-    """
-    Extract magenta/pink selected area from drawable canvas.
-    """
-
-    if canvas_image is None:
-        return None
-
-    canvas_rgb = canvas_image[:, :, :3].astype(np.uint8)
-
-    r = canvas_rgb[:, :, 0].astype(np.int16)
-    g = canvas_rgb[:, :, 1].astype(np.int16)
-    b = canvas_rgb[:, :, 2].astype(np.int16)
-
-    # Detect magenta/pink overlay
-    mask_bool = (
-        (r > 140) &
-        (b > 120) &
-        (g < 150) &
-        ((r - g) > 35) &
-        ((b - g) > 25)
-    )
-
-    mask = mask_bool.astype(np.uint8) * 255
-
-    # Clean and fill mask
-    kernel = np.ones((7, 7), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-
-    contours, _ = cv2.findContours(
-        mask,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE
-    )
-
-    filled_mask = np.zeros_like(mask)
-
-    if contours:
-        cv2.drawContours(
-            filled_mask,
-            contours,
-            -1,
-            255,
-            thickness=cv2.FILLED
-        )
-
-    return filled_mask
 
 
 def image_to_download_bytes(image_array):
@@ -291,8 +260,11 @@ def create_colour_preview(rgb_value):
 # Session state
 # ============================================================
 
-if "canvas_key" not in st.session_state:
-    st.session_state["canvas_key"] = 0
+if "points" not in st.session_state:
+    st.session_state["points"] = []
+
+if "polygon_closed" not in st.session_state:
+    st.session_state["polygon_closed"] = False
 
 if "result" not in st.session_state:
     st.session_state["result"] = None
@@ -303,6 +275,9 @@ if "selected_colour" not in st.session_state:
 if "last_uploaded_file" not in st.session_state:
     st.session_state["last_uploaded_file"] = None
 
+if "last_click_signature" not in st.session_state:
+    st.session_state["last_click_signature"] = None
+
 
 # ============================================================
 # App header
@@ -310,12 +285,11 @@ if "last_uploaded_file" not in st.session_state:
 
 st.title("Jotun Colour Visualizer")
 st.caption(
-    "Upload a room photo, select the wall directly on the image, apply a Jotun colour, and export the result."
+    "Upload a room photo, select wall corners directly on the image, apply a Jotun colour, and export the result."
 )
 
 st.info(
-    "Prototype version: manual wall selection directly on the image. "
-    "Use polygon mode for cleaner wall edges, or freedraw for quick testing."
+    "This version avoids the black canvas issue by using direct image click coordinates instead of drawable canvas background images."
 )
 
 
@@ -345,7 +319,6 @@ if uploaded_file is None:
     st.warning("Upload a room photo to start.")
     st.stop()
 
-# Open safely, including phone rotation correction
 original_image = Image.open(uploaded_file)
 original_image = ImageOps.exif_transpose(original_image)
 original_image = original_image.convert("RGB")
@@ -359,77 +332,92 @@ uploaded_file_id = f"{uploaded_file.name}_{uploaded_file.size}"
 
 if st.session_state["last_uploaded_file"] != uploaded_file_id:
     st.session_state["last_uploaded_file"] = uploaded_file_id
+    st.session_state["points"] = []
+    st.session_state["polygon_closed"] = False
     st.session_state["result"] = None
     st.session_state["selected_colour"] = None
-    st.session_state["canvas_key"] += 1
+    st.session_state["last_click_signature"] = None
 
 
 # ============================================================
 # Wall selection
 # ============================================================
 
-st.subheader("1. Select wall area directly on the image")
+st.subheader("1. Select wall area directly on the uploaded image")
 
 st.write(
-    "Draw over the wall area you want to recolour. "
-    "For best results, use **polygon** and close the shape around the wall."
+    "Click around the wall corners in order. Use at least **3 points**, then select **Close wall shape**."
 )
 
-controls_col, canvas_col = st.columns([1, 3])
+control_col, image_col = st.columns([1, 3])
 
-with controls_col:
-    drawing_mode = st.radio(
-        "Selection tool",
-        ["polygon", "freedraw"],
-        index=0
-    )
+with control_col:
+    st.markdown("### Selection controls")
 
-    stroke_width = st.slider(
-        "Line thickness",
-        min_value=1,
-        max_value=40,
-        value=3 if drawing_mode == "polygon" else 20
-    )
+    st.write(f"Points selected: **{len(st.session_state['points'])}**")
 
-    fill_opacity = st.slider(
-        "Selection visibility",
-        min_value=0.10,
-        max_value=0.80,
-        value=0.35,
-        step=0.05
-    )
+    if st.button("Undo last point"):
+        if st.session_state["points"]:
+            st.session_state["points"].pop()
+            st.session_state["polygon_closed"] = False
+            st.session_state["result"] = None
+            st.rerun()
 
-    st.markdown("---")
-
-    if st.button("Clear selection"):
-        st.session_state["canvas_key"] += 1
+    if st.button("Clear all points"):
+        st.session_state["points"] = []
+        st.session_state["polygon_closed"] = False
         st.session_state["result"] = None
+        st.session_state["last_click_signature"] = None
         st.rerun()
 
+    if st.button("Close wall shape"):
+        if len(st.session_state["points"]) >= 3:
+            st.session_state["polygon_closed"] = True
+            st.session_state["result"] = None
+            st.rerun()
+        else:
+            st.warning("Select at least 3 points before closing the wall shape.")
+
     st.info(
-        "Tip: In polygon mode, select points around the wall and close the shape. "
-        "If it feels difficult, switch to freedraw."
+        "Tip: Click the main corners of the wall. You do not need too many points at first."
     )
 
-with canvas_col:
-    canvas_result = st_canvas(
-        fill_color=f"rgba(255, 0, 180, {fill_opacity})",
-        stroke_width=stroke_width,
-        stroke_color="#FF00B4",
-        background_image=display_image,
-        background_color="#FFFFFF",
-        update_streamlit=True,
-        height=height,
-        width=width,
-        drawing_mode=drawing_mode,
-        display_toolbar=True,
-        key=f"canvas_{st.session_state['canvas_key']}_{drawing_mode}"
+with image_col:
+    preview_image = draw_points_on_image(
+        display_image,
+        st.session_state["points"],
+        closed=st.session_state["polygon_closed"]
     )
+
+    click_value = streamlit_image_coordinates(
+        preview_image,
+        key=f"image_clicker_{uploaded_file_id}_{len(st.session_state['points'])}_{st.session_state['polygon_closed']}",
+        use_column_width=True,
+        cursor="crosshair"
+    )
+
+    if click_value is not None and not st.session_state["polygon_closed"]:
+        x = int(click_value["x"])
+        y = int(click_value["y"])
+        click_time = click_value.get("t", None)
+
+        click_signature = f"{x}_{y}_{click_time}"
+
+        if st.session_state["last_click_signature"] != click_signature:
+            st.session_state["points"].append((x, y))
+            st.session_state["last_click_signature"] = click_signature
+            st.rerun()
+
 
 mask = None
 
-if canvas_result.image_data is not None:
-    mask = extract_mask_from_canvas(canvas_result.image_data)
+if st.session_state["polygon_closed"] and len(st.session_state["points"]) >= 3:
+    mask = create_polygon_mask(display_image.size, st.session_state["points"])
+
+    selected_pixels = int(np.sum(mask > 0))
+    st.success(f"Wall shape closed. Selected area: {selected_pixels:,} pixels.")
+else:
+    st.warning("Wall shape is not closed yet. Select points and then choose 'Close wall shape'.")
 
 
 # ============================================================
@@ -490,21 +478,9 @@ strength = st.slider(
 
 st.subheader("3. Generate preview")
 
-generate_col, mask_col = st.columns([1, 2])
-
-with generate_col:
-    apply_clicked = st.button("Apply colour", type="primary")
-
-with mask_col:
-    if mask is not None and np.sum(mask) > 0:
-        selected_pixels = int(np.sum(mask > 0))
-        st.success(f"Wall area selected: {selected_pixels:,} pixels")
-    else:
-        st.warning("No wall area selected yet.")
-
-if apply_clicked:
+if st.button("Apply colour", type="primary"):
     if mask is None or np.sum(mask) == 0:
-        st.warning("Please select the wall area directly on the image first.")
+        st.warning("Please select and close the wall shape first.")
     else:
         result = recolor_wall_lab(
             image_rgb=image_rgb,
@@ -573,13 +549,12 @@ else:
 
 
 # ============================================================
-# Debug section
+# Debug info
 # ============================================================
 
 with st.expander("Debug info"):
-    st.write("Detected colour columns:", list(colours.columns))
     st.write("Image size:", display_image.size)
     st.write("Image mode:", display_image.mode)
-    if mask is not None:
-        st.write("Mask shape:", mask.shape)
-        st.write("Mask selected pixels:", int(np.sum(mask > 0)))
+    st.write("Points:", st.session_state["points"])
+    st.write("Polygon closed:", st.session_state["polygon_closed"])
+    st.write("Detected colour columns:", list(colours.columns))
