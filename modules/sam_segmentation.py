@@ -1,31 +1,40 @@
 import numpy as np
 import torch
 import cv2
+import os
+import urllib.request
 
 from segment_anything import sam_model_registry, SamPredictor
 
 
-# Load once (important for performance)
+SAM_URL = "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth"
+MODEL_PATH = "sam_vit_b_01ec64.pth"
+
 sam = None
 predictor = None
+
+
+def download_model():
+
+    if os.path.exists(MODEL_PATH):
+        return
+
+    with st.spinner("Downloading SAM model (first run only)..."):
+        urllib.request.urlretrieve(SAM_URL, MODEL_PATH)
 
 
 def load_sam():
 
     global sam, predictor
 
-    if sam is not None:
+    if predictor is not None:
         return predictor
 
-    # You will need to download this checkpoint once
-    # https://github.com/facebookresearch/segment-anything
-    sam_checkpoint = "sam_vit_b.pth"
-
-    model_type = "vit_b"
+    download_model()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
+    sam = sam_model_registry["vit_b"](checkpoint=MODEL_PATH)
     sam.to(device=device)
 
     predictor = SamPredictor(sam)
@@ -50,7 +59,6 @@ def get_sam_mask(image_np, point):
         multimask_output=True
     )
 
-    # pick best mask
     best_mask = masks[np.argmax(scores)]
 
     return (best_mask.astype(np.uint8)) * 255
