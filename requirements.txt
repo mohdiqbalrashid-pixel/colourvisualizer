@@ -1,10 +1,4 @@
-streamlit==1.46.1
-streamlit-image-coordinates
-opencv-python-headless
+streamlit
 numpy
-pandas
-Pillow
-scikit-image
-torch
 opencv-python-headless
-segment-anything
+pillow
