@@ -1,4 +1,5 @@
 import streamlit as st
+import numpy as np
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 
@@ -12,10 +13,12 @@ def build_preview():
 
         return
 
+    # Convert PIL → numpy (IMPORTANT FIX)
     image = st.session_state.uploaded_image
+    image_np = np.array(image)
 
     click = streamlit_image_coordinates(
-        image,
+        image_np,
         key="image_click",
         use_container_width=True
     )
