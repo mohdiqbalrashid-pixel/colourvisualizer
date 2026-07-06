@@ -2,6 +2,8 @@ import streamlit as st
 import numpy as np
 from streamlit_image_coordinates import streamlit_image_coordinates
 
+from modules.segmentation import create_wall_mask
+
 
 def build_preview():
 
@@ -13,10 +15,8 @@ def build_preview():
 
         return
 
-    # Convert PIL → numpy (required)
     image_np = np.array(st.session_state.uploaded_image)
 
-    # Render clickable image
     click = streamlit_image_coordinates(
         image_np,
         key="image_click"
@@ -24,17 +24,31 @@ def build_preview():
 
     if click:
 
-        st.session_state.selected_surface_point = (
-            click["x"],
-            click["y"]
-        )
+        seed = (click["x"], click["y"])
 
-        st.success(
-            f"Selected point → X: {click['x']} | Y: {click['y']}"
-        )
+        st.session_state.selected_surface_point = seed
 
-    if st.session_state.selected_surface_point:
+        mask, segmented = create_wall_mask(image_np, seed)
 
-        st.info(
-            f"Active selection: {st.session_state.selected_surface_point}"
-        )
+        st.session_state.wall_mask = mask
+        st.session_state.segmented_image = segmented
+
+        st.success(f"Wall detected from seed {seed}")
+
+    # Show results
+
+    if st.session_state.segmented_image is not None:
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.write("Original")
+            st.image(image_np, use_container_width=True)
+
+        with col2:
+            st.write("Detected Wall Region")
+            st.image(st.session_state.segmented_image, use_container_width=True)
+
+    else:
+
+        st.image(image_np, use_container_width=True)
