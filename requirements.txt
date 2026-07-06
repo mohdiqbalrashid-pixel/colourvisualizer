@@ -1,6 +1,7 @@
-streamlit
+streamlit==1.46.1
 streamlit-image-coordinates
 opencv-python-headless
 numpy
-pillow
 pandas
+Pillow
+scikit-image
