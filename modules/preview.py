@@ -13,14 +13,13 @@ def build_preview():
 
         return
 
-    # Convert PIL → numpy (IMPORTANT FIX)
-    image = st.session_state.uploaded_image
-    image_np = np.array(image)
+    # Convert PIL → numpy (required)
+    image_np = np.array(st.session_state.uploaded_image)
 
+    # Render clickable image
     click = streamlit_image_coordinates(
         image_np,
-        key="image_click",
-        use_container_width=True
+        key="image_click"
     )
 
     if click:
