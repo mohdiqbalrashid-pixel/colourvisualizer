@@ -2,7 +2,7 @@ import streamlit as st
 
 
 APP_NAME = "Jotun Colour Visualizer"
-APP_VERSION = "v2.1.1"
+APP_VERSION = "v2.1.2"
 APP_CAPTION = "Internal Colour Consultation Tool"
 
 PRIMARY_BLUE = "#003E7E"
@@ -13,7 +13,11 @@ MAX_IMAGE_WIDTH = 1200
 DEFAULT_MASK_COLOUR = (255, 0, 180)
 DEFAULT_MASK_OPACITY = 0.35
 
-DEFAULT_PAINT_STRENGTH = 0.85
+DEFAULT_PAINT_STRENGTH = 0.88
+
+MASK_EXPAND_PIXELS = 5
+MASK_SHRINK_PIXELS = 5
+MASK_SMOOTH_KERNEL = 15
 
 
 def configure_page() -> None:
