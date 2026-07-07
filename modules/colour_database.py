@@ -1,7 +1,32 @@
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 import streamlit as st
+
+
+COLOUR_DATABASE_PATH = "colours.csv"
+
+
+def get_colour_database_signature() -> str:
+    """
+    Creates a small fingerprint for colours.csv.
+
+    This forces Streamlit cache to reload when the CSV file changes.
+    """
+
+    if not os.path.exists(COLOUR_DATABASE_PATH):
+        return "missing"
+
+    modified_time = os.path.getmtime(COLOUR_DATABASE_PATH)
+    file_size = os.path.getsize(COLOUR_DATABASE_PATH)
+
+    return f"{modified_time}_{file_size}"
+
+
+def clear_colour_cache() -> None:
+    load_colours.clear()
 
 
 def _normalise_column_names(df: pd.DataFrame) -> pd.DataFrame:
@@ -67,8 +92,19 @@ def _clean_hex(value: str) -> str:
 
 
 @st.cache_data(show_spinner=False)
-def load_colours() -> pd.DataFrame:
-    df = pd.read_csv("colours.csv")
+def load_colours(file_signature: str | None = None) -> pd.DataFrame:
+    """
+    Load and clean colours.csv.
+
+    file_signature is intentionally unused inside the function.
+    It exists so Streamlit cache invalidates whenever colours.csv changes.
+    """
+
+    try:
+        df = pd.read_csv(COLOUR_DATABASE_PATH)
+    except FileNotFoundError:
+        st.error("Could not find colours.csv in the project root.")
+        st.stop()
 
     df = _normalise_column_names(df)
 
@@ -82,6 +118,7 @@ def load_colours() -> pd.DataFrame:
             "Your colours.csv is missing required columns: "
             + ", ".join(missing_basic_columns)
         )
+        st.write("Detected columns:", list(df.columns))
         st.stop()
 
     if "product" not in df.columns:
@@ -138,6 +175,7 @@ def load_colours() -> pd.DataFrame:
     df["colour_name"] = df["colour_name"].astype(str)
     df["product"] = df["product"].astype(str)
     df["finish"] = df["finish"].astype(str)
+    df["lrv"] = df["lrv"].astype(str)
 
     df["display_label"] = (
         df["colour_code"]
@@ -146,3 +184,8 @@ def load_colours() -> pd.DataFrame:
     )
 
     return df.reset_index(drop=True)
+
+
+def get_colours() -> pd.DataFrame:
+    signature = get_colour_database_signature()
+    return load_colours(signature)
