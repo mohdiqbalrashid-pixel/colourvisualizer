@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from modules.colour_database import load_colours
+from modules.colour_database import clear_colour_cache, get_colours
 from modules.session import get_app_state, sync_app_to_legacy
 from modules.uploader import upload_image
 
@@ -24,7 +24,7 @@ def _render_colour_swatch(hex_value: str) -> None:
 
 
 def _filter_colours(search_text: str):
-    colours = load_colours()
+    colours = get_colours()
 
     if not search_text:
         return colours
@@ -47,9 +47,25 @@ def _select_colour(filtered_colours):
 
     labels = filtered_colours["display_label"].tolist()
 
+    previous_colour = app.get("selected_colour")
+    previous_label = None
+
+    if previous_colour:
+        previous_label = (
+            str(previous_colour.get("colour_code", ""))
+            + " • "
+            + str(previous_colour.get("colour_name", ""))
+        )
+
+    selected_index = 0
+
+    if previous_label in labels:
+        selected_index = labels.index(previous_label)
+
     selected_label = st.selectbox(
         "Available colours",
         labels,
+        index=selected_index,
         key="colour_select",
     )
 
@@ -86,6 +102,18 @@ def build_sidebar() -> None:
     st.divider()
 
     st.subheader("Colour Library")
+
+    colours = get_colours()
+
+    reload_col1, reload_col2 = st.columns([2, 1])
+
+    with reload_col1:
+        st.caption(f"Loaded **{len(colours)}** colours.")
+
+    with reload_col2:
+        if st.button("Reload", use_container_width=True):
+            clear_colour_cache()
+            st.rerun()
 
     search = st.text_input(
         "Search",
