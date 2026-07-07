@@ -2,7 +2,7 @@ import streamlit as st
 
 
 APP_NAME = "Jotun Colour Visualizer"
-APP_VERSION = "v2.1.4"
+APP_VERSION = "v2.1.5"
 APP_CAPTION = "Internal Colour Consultation Tool"
 
 PRIMARY_BLUE = "#003E7E"
@@ -24,6 +24,8 @@ MIN_BRUSH_SIZE = 5
 MAX_BRUSH_SIZE = 120
 
 HISTORY_LIMIT = 25
+
+DEFAULT_COMPARISON_POSITION = 50
 
 
 def configure_page() -> None:
