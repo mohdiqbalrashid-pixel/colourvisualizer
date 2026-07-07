@@ -2,7 +2,7 @@ import streamlit as st
 
 
 APP_NAME = "Jotun Colour Visualizer"
-APP_VERSION = "v2.1.6"
+APP_VERSION = "v2.1.7"
 APP_CAPTION = "Internal Colour Consultation Tool"
 
 PRIMARY_BLUE = "#003E7E"
@@ -27,7 +27,6 @@ HISTORY_LIMIT = 25
 
 DEFAULT_COMPARISON_POSITION = 50
 
-# Automatic surface detection settings
 DETECTION_MIN_COVERAGE = 0.003
 DETECTION_MAX_COVERAGE = 0.48
 DETECTION_EDGE_LOW = 45
