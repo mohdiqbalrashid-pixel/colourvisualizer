@@ -2,7 +2,7 @@ import streamlit as st
 
 
 APP_NAME = "Jotun Colour Visualizer"
-APP_VERSION = "v2.1.8"
+APP_VERSION = "v2.2.0"
 APP_CAPTION = "Internal Colour Consultation Tool"
 
 PRIMARY_BLUE = "#003E7E"
@@ -13,17 +13,17 @@ MAX_IMAGE_WIDTH = 1200
 DEFAULT_MASK_COLOUR = (255, 0, 180)
 DEFAULT_MASK_OPACITY = 0.35
 
-# Set to 1.0 so the painted colour matches the selected RGB as closely as possible
-# while the new recolouring engine still preserves shadows and highlights.
+# High accuracy mode: selected RGB becomes the real base paint colour.
 DEFAULT_PAINT_STRENGTH = 1.0
 
 MASK_EXPAND_PIXELS = 5
 MASK_SHRINK_PIXELS = 5
 MASK_SMOOTH_KERNEL = 15
 
-DEFAULT_BRUSH_SIZE = 35
+# Larger default brush because this is an internal consultant tool.
+DEFAULT_BRUSH_SIZE = 70
 MIN_BRUSH_SIZE = 5
-MAX_BRUSH_SIZE = 120
+MAX_BRUSH_SIZE = 180
 
 HISTORY_LIMIT = 25
 
