@@ -1,303 +1,275 @@
 from __future__ import annotations
 
+import cv2
 import numpy as np
 import streamlit as st
-from streamlit_image_coordinates import streamlit_image_coordinates
 
 from modules.config import (
-    DEFAULT_PAINT_STRENGTH,
-    MASK_EXPAND_PIXELS,
-    MASK_SHRINK_PIXELS,
-    MASK_SMOOTH_KERNEL,
+    DEFAULT_MASK_COLOUR,
+    DEFAULT_MASK_OPACITY,
+    HISTORY_LIMIT,
 )
-from modules.mask_editor import (
-    clear_editable_mask,
-    create_overlay,
-    expand_mask,
-    fill_mask_holes,
-    get_mask_summary,
-    has_mask,
-    initialise_mask,
-    set_editable_mask,
-    shrink_mask,
-    smooth_mask,
-)
-from modules.recolouring import apply_paint
-from modules.segmentation import create_wall_mask
-from modules.session import get_app_state, sync_app_to_legacy
 
 
-def build_preview() -> None:
-    st.subheader("Preview")
+def initialise_mask(image_shape: tuple[int, int, int]) -> None:
+    h, w = image_shape[:2]
 
-    app = get_app_state()
+    if (
+        "editable_mask" not in st.session_state
+        or st.session_state.editable_mask is None
+        or st.session_state.editable_mask.shape != (h, w)
+    ):
+        st.session_state.editable_mask = np.zeros((h, w), dtype=np.uint8)
 
-    image = app.get("image") or st.session_state.get("uploaded_image")
 
-    if image is None:
-        st.info("Upload an image to begin.")
+def set_editable_mask(mask: np.ndarray) -> np.ndarray:
+    cleaned = _ensure_uint8_mask(mask)
+    st.session_state.editable_mask = cleaned.copy()
+    return cleaned
+
+
+def get_editable_mask() -> np.ndarray | None:
+    return st.session_state.get("editable_mask")
+
+
+def clear_editable_mask(image_shape: tuple[int, int, int]) -> np.ndarray:
+    h, w = image_shape[:2]
+    empty = np.zeros((h, w), dtype=np.uint8)
+    st.session_state.editable_mask = empty
+    return empty
+
+
+def has_mask(mask: np.ndarray | None) -> bool:
+    if mask is None:
+        return False
+
+    return bool(np.any(mask > 0))
+
+
+def push_history(mask: np.ndarray | None) -> None:
+    if mask is None:
         return
 
-    image_np = np.array(image)
-    initialise_mask(image_np.shape)
-
-    _sync_existing_mask_into_app(image_np)
-
-    _render_mask_controls(image_np)
-
-    display_image = _get_workspace_image(image_np)
-
-    click = streamlit_image_coordinates(
-        display_image,
-        key="image_click_workspace",
-    )
-
-    if click:
-        seed = (int(click["x"]), int(click["y"]))
-
-        if seed != app.get("selected_surface_point"):
-            _process_surface_click(image_np, seed)
-            st.rerun()
-
-    _render_workspace_status(image_np)
-    _render_output(image_np)
-
-
-def _render_mask_controls(image_np: np.ndarray) -> None:
-    app = get_app_state()
-
-    controls = st.container()
-
-    with controls:
-        col1, col2, col3, col4 = st.columns([1.1, 1, 1, 1])
-
-        with col1:
-            show_mask = st.checkbox(
-                "Show mask overlay",
-                value=bool(app.get("show_mask", True)),
-                key="show_mask_overlay_toggle",
-            )
-
-            app["show_mask"] = show_mask
-            st.session_state.show_mask = show_mask
-
-        mask = app.get("editable_mask")
-
-        with col2:
-            if st.button(
-                "Expand edge",
-                use_container_width=True,
-                disabled=not has_mask(mask),
-                help="Slightly expands the selected wall mask to reduce unpainted edge gaps.",
-            ):
-                updated = expand_mask(mask, pixels=MASK_EXPAND_PIXELS)
-                _update_mask_and_repaint(image_np, updated)
-                st.rerun()
-
-        with col3:
-            if st.button(
-                "Shrink edge",
-                use_container_width=True,
-                disabled=not has_mask(mask),
-                help="Slightly shrinks the selected wall mask if paint spills outside the wall.",
-            ):
-                updated = shrink_mask(mask, pixels=MASK_SHRINK_PIXELS)
-                _update_mask_and_repaint(image_np, updated)
-                st.rerun()
-
-        with col4:
-            if st.button(
-                "Smooth mask",
-                use_container_width=True,
-                disabled=not has_mask(mask),
-                help="Softens jagged mask boundaries.",
-            ):
-                updated = smooth_mask(mask, kernel_size=MASK_SMOOTH_KERNEL)
-                _update_mask_and_repaint(image_np, updated)
-                st.rerun()
-
-        col5, col6 = st.columns([1, 3])
-
-        with col5:
-            if st.button(
-                "Fill holes",
-                use_container_width=True,
-                disabled=not has_mask(mask),
-                help="Fills small unselected holes inside the wall mask.",
-            ):
-                updated = fill_mask_holes(mask)
-                _update_mask_and_repaint(image_np, updated)
-                st.rerun()
-
-        with col6:
-            if st.button(
-                "Clear mask",
-                use_container_width=True,
-                disabled=not has_mask(mask),
-            ):
-                empty = clear_editable_mask(image_np.shape)
-                _update_mask_without_repaint(empty)
-                app["painted_image"] = None
-                st.session_state.painted_image = None
-                st.rerun()
-
-
-def _get_workspace_image(image_np: np.ndarray) -> np.ndarray:
-    app = get_app_state()
-
-    mask = app.get("editable_mask")
-
-    if app.get("show_mask", True) and has_mask(mask):
-        return create_overlay(image_np, mask)
-
-    return image_np
-
-
-def _process_surface_click(image_np: np.ndarray, seed: tuple[int, int]) -> None:
-    app = get_app_state()
-
-    mask = create_wall_mask(image_np, seed)
-    mask = set_editable_mask(mask)
-
-    app["selected_surface_point"] = seed
-    app["raw_mask"] = mask.copy()
-    app["editable_mask"] = mask.copy()
-
-    st.session_state.selected_surface_point = seed
-    st.session_state.wall_mask = mask.copy()
-    st.session_state.editable_mask = mask.copy()
-
-    _repaint_from_mask(image_np)
-
-    sync_app_to_legacy()
-
-
-def _update_mask_and_repaint(image_np: np.ndarray, mask: np.ndarray) -> None:
-    app = get_app_state()
-
-    mask = set_editable_mask(mask)
-
-    app["editable_mask"] = mask.copy()
-    app["raw_mask"] = mask.copy()
-
-    st.session_state.editable_mask = mask.copy()
-    st.session_state.wall_mask = mask.copy()
-
-    _repaint_from_mask(image_np)
-
-    sync_app_to_legacy()
-
-
-def _update_mask_without_repaint(mask: np.ndarray) -> None:
-    app = get_app_state()
-
-    mask = set_editable_mask(mask)
-
-    app["editable_mask"] = mask.copy()
-    app["raw_mask"] = mask.copy()
-
-    st.session_state.editable_mask = mask.copy()
-    st.session_state.wall_mask = mask.copy()
-
-    sync_app_to_legacy()
-
-
-def _repaint_from_mask(image_np: np.ndarray) -> None:
-    app = get_app_state()
-
-    mask = app.get("editable_mask")
-    colour = app.get("selected_colour") or st.session_state.get("selected_colour")
-
-    if mask is None or colour is None or not has_mask(mask):
-        app["painted_image"] = None
-        st.session_state.painted_image = None
+    if "app" not in st.session_state:
         return
 
-    target_rgb = _colour_to_rgb(colour)
+    app = st.session_state.app
 
-    painted = apply_paint(
-        image_np=image_np,
-        mask=mask,
-        target_rgb=target_rgb,
-        strength=DEFAULT_PAINT_STRENGTH,
-    )
+    history = app.setdefault("history", [])
+    redo_stack = app.setdefault("redo_stack", [])
 
-    app["painted_image"] = painted
-    st.session_state.painted_image = painted
+    history.append(mask.copy())
+
+    if len(history) > HISTORY_LIMIT:
+        history.pop(0)
+
+    redo_stack.clear()
 
 
-def _render_workspace_status(image_np: np.ndarray) -> None:
-    app = get_app_state()
+def can_undo() -> bool:
+    app = st.session_state.get("app", {})
+    return bool(app.get("history"))
 
-    mask = app.get("editable_mask")
-    seed = app.get("selected_surface_point")
 
-    if seed is None:
-        st.caption("Click directly on the wall or surface you want to recolour.")
+def can_redo() -> bool:
+    app = st.session_state.get("app", {})
+    return bool(app.get("redo_stack"))
+
+
+def undo_mask(current_mask: np.ndarray | None) -> np.ndarray | None:
+    if "app" not in st.session_state:
+        return current_mask
+
+    app = st.session_state.app
+
+    history = app.setdefault("history", [])
+    redo_stack = app.setdefault("redo_stack", [])
+
+    if not history:
+        return current_mask
+
+    if current_mask is not None:
+        redo_stack.append(current_mask.copy())
+
+    return history.pop()
+
+
+def redo_mask(current_mask: np.ndarray | None) -> np.ndarray | None:
+    if "app" not in st.session_state:
+        return current_mask
+
+    app = st.session_state.app
+
+    history = app.setdefault("history", [])
+    redo_stack = app.setdefault("redo_stack", [])
+
+    if not redo_stack:
+        return current_mask
+
+    if current_mask is not None:
+        history.append(current_mask.copy())
+
+    return redo_stack.pop()
+
+
+def apply_brush_to_mask(
+    mask: np.ndarray | None,
+    image_shape: tuple[int, int, int],
+    point: tuple[int, int],
+    brush_size: int,
+    mode: str,
+) -> np.ndarray:
+    h, w = image_shape[:2]
+
+    if mask is None:
+        edited = np.zeros((h, w), dtype=np.uint8)
     else:
-        st.caption(f"Selected surface seed: X={seed[0]}, Y={seed[1]}")
+        edited = _ensure_uint8_mask(mask).copy()
 
-    if has_mask(mask):
-        st.caption(get_mask_summary(mask, image_np.shape))
+    x, y = point
 
+    x = int(np.clip(x, 0, w - 1))
+    y = int(np.clip(y, 0, h - 1))
 
-def _render_output(image_np: np.ndarray) -> None:
-    app = get_app_state()
+    radius = max(1, int(brush_size) // 2)
 
-    painted = app.get("painted_image")
+    if mode == "erase":
+        value = 0
+    else:
+        value = 255
 
-    if painted is None:
-        return
-
-    st.divider()
-    st.subheader("Paint Preview")
-
-    before_col, after_col = st.columns(2)
-
-    with before_col:
-        st.caption("Before")
-        st.image(image_np, use_container_width=True)
-
-    with after_col:
-        st.caption("After")
-        st.image(painted, use_container_width=True)
-
-
-def _sync_existing_mask_into_app(image_np: np.ndarray) -> None:
-    app = get_app_state()
-
-    legacy_mask = st.session_state.get("editable_mask")
-    wall_mask = st.session_state.get("wall_mask")
-
-    if app.get("editable_mask") is None:
-        if legacy_mask is not None:
-            app["editable_mask"] = legacy_mask.copy()
-        elif wall_mask is not None:
-            app["editable_mask"] = wall_mask.copy()
-
-    if app.get("raw_mask") is None and wall_mask is not None:
-        app["raw_mask"] = wall_mask.copy()
-
-    if app.get("painted_image") is None and st.session_state.get("painted_image") is not None:
-        app["painted_image"] = st.session_state.painted_image
-
-    mask = app.get("editable_mask")
-
-    if mask is not None and mask.shape != image_np.shape[:2]:
-        app["editable_mask"] = None
-        app["raw_mask"] = None
-        app["painted_image"] = None
-        st.session_state.editable_mask = None
-        st.session_state.wall_mask = None
-        st.session_state.painted_image = None
-
-
-def _colour_to_rgb(colour) -> tuple[int, int, int]:
-    if hasattr(colour, "to_dict"):
-        colour = colour.to_dict()
-
-    return (
-        int(colour["r"]),
-        int(colour["g"]),
-        int(colour["b"]),
+    cv2.circle(
+        edited,
+        center=(x, y),
+        radius=radius,
+        color=value,
+        thickness=-1,
     )
+
+    return _ensure_uint8_mask(edited)
+
+
+def expand_mask(mask: np.ndarray, pixels: int = 5) -> np.ndarray:
+    mask = _ensure_uint8_mask(mask)
+
+    kernel_size = max(3, int(pixels))
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+
+    kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
+    expanded = cv2.dilate(mask, kernel, iterations=1)
+
+    return _ensure_uint8_mask(expanded)
+
+
+def shrink_mask(mask: np.ndarray, pixels: int = 5) -> np.ndarray:
+    mask = _ensure_uint8_mask(mask)
+
+    kernel_size = max(3, int(pixels))
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+
+    kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
+    shrunk = cv2.erode(mask, kernel, iterations=1)
+
+    return _ensure_uint8_mask(shrunk)
+
+
+def smooth_mask(mask: np.ndarray, kernel_size: int = 15) -> np.ndarray:
+    mask = _ensure_uint8_mask(mask)
+
+    kernel_size = max(3, int(kernel_size))
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+
+    smoothed = cv2.GaussianBlur(mask, (kernel_size, kernel_size), 0)
+
+    return _ensure_uint8_mask(smoothed)
+
+
+def fill_mask_holes(mask: np.ndarray) -> np.ndarray:
+    mask = _ensure_uint8_mask(mask)
+
+    binary = (mask > 0).astype(np.uint8) * 255
+
+    h, w = binary.shape[:2]
+    flood_mask = np.zeros((h + 2, w + 2), dtype=np.uint8)
+
+    flood_filled = binary.copy()
+    cv2.floodFill(flood_filled, flood_mask, (0, 0), 255)
+
+    inverted = cv2.bitwise_not(flood_filled)
+    filled = binary | inverted
+
+    return _ensure_uint8_mask(filled)
+
+
+def create_overlay(
+    image: np.ndarray,
+    mask: np.ndarray | None = None,
+    colour: tuple[int, int, int] = DEFAULT_MASK_COLOUR,
+    opacity: float = DEFAULT_MASK_OPACITY,
+) -> np.ndarray:
+    if mask is None:
+        mask = get_editable_mask()
+
+    if mask is None or not has_mask(mask):
+        return image.copy()
+
+    mask = _ensure_uint8_mask(mask)
+
+    overlay = image.copy()
+    mask_bool = mask > 0
+
+    colour_layer = np.zeros_like(image)
+    colour_layer[:, :] = colour
+
+    blended = cv2.addWeighted(
+        image,
+        1 - opacity,
+        colour_layer,
+        opacity,
+        0,
+    )
+
+    overlay[mask_bool] = blended[mask_bool]
+
+    return overlay
+
+
+def get_mask_coverage(mask: np.ndarray | None, image_shape: tuple[int, int, int]) -> float:
+    if mask is None:
+        return 0.0
+
+    h, w = image_shape[:2]
+    total_pixels = h * w
+
+    if total_pixels == 0:
+        return 0.0
+
+    selected_pixels = int(np.sum(mask > 0))
+
+    return selected_pixels / total_pixels
+
+
+def get_mask_summary(mask: np.ndarray | None, image_shape: tuple[int, int, int]) -> str:
+    if mask is None or not has_mask(mask):
+        return "No mask selected."
+
+    coverage = get_mask_coverage(mask, image_shape)
+    selected_pixels = int(np.sum(mask > 0))
+
+    return f"Mask coverage: {coverage:.1%} | Selected pixels: {selected_pixels:,}"
+
+
+def _ensure_uint8_mask(mask: np.ndarray) -> np.ndarray:
+    if mask is None:
+        raise ValueError("Mask cannot be None.")
+
+    if mask.dtype != np.uint8:
+        mask = mask.astype(np.uint8)
+
+    if mask.max() <= 1:
+        mask = mask * 255
+
+    return np.clip(mask, 0, 255).astype(np.uint8)
