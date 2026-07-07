@@ -4,6 +4,7 @@ import numpy as np
 import streamlit as st
 from streamlit_image_coordinates import streamlit_image_coordinates
 
+from modules.comparison import render_comparison_panel
 from modules.config import (
     DEFAULT_BRUSH_SIZE,
     DEFAULT_PAINT_STRENGTH,
@@ -416,19 +417,14 @@ def _render_output(image_np: np.ndarray) -> None:
         return
 
     st.divider()
-    st.subheader("Paint Preview")
 
-    before_col, after_col = st.columns(2)
-
-    with before_col:
-        st.caption("Before")
-        st.image(image_np, use_container_width=True)
-
-    with after_col:
-        st.caption("After")
-        st.image(painted, use_container_width=True)
+    render_comparison_panel(
+        before_image=image_np,
+        after_image=painted,
+    )
 
     st.divider()
+
     render_export_panel(painted, colour)
 
 
