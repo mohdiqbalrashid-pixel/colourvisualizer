@@ -13,6 +13,7 @@ from modules.config import (
     MAX_BRUSH_SIZE,
     MIN_BRUSH_SIZE,
 )
+from modules.export import render_export_panel
 from modules.mask_editor import (
     apply_brush_to_mask,
     can_redo,
@@ -409,6 +410,7 @@ def _render_output(image_np: np.ndarray) -> None:
     app = get_app_state()
 
     painted = app.get("painted_image")
+    colour = app.get("selected_colour") or st.session_state.get("selected_colour")
 
     if painted is None:
         return
@@ -425,6 +427,9 @@ def _render_output(image_np: np.ndarray) -> None:
     with after_col:
         st.caption("After")
         st.image(painted, use_container_width=True)
+
+    st.divider()
+    render_export_panel(painted, colour)
 
 
 def _sync_existing_mask_into_app(image_np: np.ndarray) -> None:
