@@ -2,7 +2,7 @@ import streamlit as st
 
 
 APP_NAME = "Jotun Colour Visualizer"
-APP_VERSION = "v2.1.0"
+APP_VERSION = "v2.1.1"
 APP_CAPTION = "Internal Colour Consultation Tool"
 
 PRIMARY_BLUE = "#003E7E"
