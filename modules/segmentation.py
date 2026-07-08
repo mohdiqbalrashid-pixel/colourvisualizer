@@ -82,7 +82,7 @@ def _refine_mask(image: np.ndarray, raw_mask: np.ndarray) -> np.ndarray:
         
     return refined_mask
 
-def create_segmentation_mask(
+def create_wall_mask(
     image: np.ndarray, 
     seed_point: tuple[int, int]
 ) -> np.ndarray:
