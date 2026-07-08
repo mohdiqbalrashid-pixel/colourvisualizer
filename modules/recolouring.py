@@ -6,7 +6,7 @@ import numpy as np
 from modules.config import DEFAULT_PAINT_STRENGTH
 
 
-def apply_realistic_paint(
+def apply_paint(
     original_image: np.ndarray, 
     mask: np.ndarray, 
     target_rgb: tuple[int, int, int], 
