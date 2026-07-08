@@ -1,6 +1,4 @@
+opencv-contrib-python-headless
 streamlit
-streamlit-image-coordinates
-numpy
 pandas
-opencv-python-headless
-pillow
+numpy
